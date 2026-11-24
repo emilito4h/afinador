@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#8b4a2b">
+<link rel="icon" href="icon-192.png">
+<title>Afinador de violín</title>
+<style>
+:root{--bg:#f6f3ee;--fg:#2a2118;--mut:#8a7d6e;--card:#fff;--ok:#2e9e5b;--bad:#d4572f;--ac:#8b4a2b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1b1612;--fg:#f1e9df;--mut:#a09282;--card:#272019;--ok:#4cc57f;--bad:#f0794f;--ac:#d9a066}}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:460px;margin:0 auto;padding:20px;text-align:center}
+h1{font-size:1.1rem;font-weight:600;margin:4px 0 16px;color:var(--mut);letter-spacing:.04em}
+.card{background:var(--card);border-radius:20px;padding:16px 12px 20px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+#note{font-size:5rem;font-weight:700;line-height:1;margin-top:4px;transition:color .2s}
+#note small{font-size:1.8rem;font-weight:500}
+#info{color:var(--mut);margin:6px 0 0;min-height:1.4em}
+svg{width:100%;height:auto;display:block}
+#needle{transform-origin:200px 200px;transition:transform .12s linear}
+.strings{display:flex;gap:8px;justify-content:center;margin:18px 0}
+.s{flex:1;padding:12px 0;border-radius:14px;background:var(--card);border:2px solid transparent;font-weight:600;box-shadow:0 1px 6px rgba(0,0,0,.06)}
+.s span{display:block;font-size:.7rem;color:var(--mut);font-weight:400}
+.s.on{border-color:var(--ac)}
+button{font:inherit;border:0;border-radius:14px;padding:14px 28px;background:var(--ac);color:#fff;font-weight:600;font-size:1.05rem}
+.ref{margin-top:16px;color:var(--mut);font-size:.9rem}
+.ref button{padding:4px 12px;font-size:1rem;margin:0 6px;background:var(--card);color:var(--fg);box-shadow:0 1px 4px rgba(0,0,0,.15)}
+#err{color:var(--bad);margin-top:12px;font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+<h1>AFINADOR DE VIOLÍN</h1>
+<div class="card">
+<svg viewBox="0 0 400 230" aria-label="Medidor">
+<path d="M40 200 A160 160 0 0 1 360 200" fill="none" stroke="var(--mut)" stroke-opacity=".3" stroke-width="14" stroke-linecap="round"/>
+<path d="M176 42.6 A160 160 0 0 1 224 42.6" fill="none" stroke="var(--ok)" stroke-width="14"/>
+<g id="ticks" stroke="var(--mut)" stroke-width="2"></g>
+<text x="40" y="226" fill="var(--mut)" font-size="14" text-anchor="middle">♭</text>
+<text x="360" y="226" fill="var(--mut)" font-size="14" text-anchor="middle">♯</text>
+<g id="needle"><line x1="200" y1="200" x2="200" y2="52" stroke="var(--fg)" stroke-width="4" stroke-linecap="round"/></g>
+<circle cx="200" cy="200" r="10" fill="var(--fg)"/>
+</svg>
+<div id="note">–</div>
+<p id="info">Tocá una cuerda</p>
+</div>
+<div class="strings" id="strings">
+<div class="s" data-f="196"><b>G</b><span>Sol</span></div>
+<div class="s" data-f="293.66"><b>D</b><span>Re</span></div>
+<div class="s" data-f="440"><b>A</b><span>La</span></div>
+<div class="s" data-f="659.25"><b>E</b><span>Mi</span></div>
+</div>
+<button id="go">Activar micrófono</button>
+<div class="ref">La = <button id="m">−</button><b id="a4">440</b> Hz<button id="p">+</button></div>
+<div id="err"></div>
+</main>
+<script>
+const NAMES=["Do","Do♯","Re","Re♯","Mi","Fa","Fa♯","Sol","Sol♯","La","La♯","Si"];
+let A4=440,ctx,an,buf,run=false,cur=0,lastSeen=0;
+const $=id=>document.getElementById(id);
+const ticks=$("ticks");
+for(let c=-50;c<=50;c+=10){const a=(c/50)*60*Math.PI/180,r1=c%50===0||c===0?150:155,r2=168;
+ const l=document.createElementNS("http://www.w3.org/2000/svg","line");
+ l.setAttribute("x1",200+Math.sin(a)*r1);l.setAttribute("y1",200-Math.cos(a)*r1);
+ l.setAttribute("x2",200+Math.sin(a)*r2);l.setAttribute("y2",200-Math.cos(a)*r2);ticks.appendChild(l);}
+const strs=[...document.querySelectorAll(".s")];
+function setA4(v){A4=Math.max(430,Math.min(450,v));$("a4").textContent=A4}
+$("m").onclick=()=>setA4(A4-1);$("p").onclick=()=>setA4(A4+1);
+
+function yin(x,sr){
+ const W=x.length>>1,minT=Math.floor(sr/1500),maxT=Math.min(W-1,Math.floor(sr/150));
+ const d=new Float32Array(maxT+1);
+ for(let t=1;t<=maxT;t++){let s=0;for(let j=0;j<W;j++){const k=x[j]-x[j+t];s+=k*k}d[t]=s}
+ let sum=0;d[0]=1;
+ for(let t=1;t<=maxT;t++){sum+=d[t];d[t]=d[t]*t/(sum||1)}
+ for(let t=minT;t<maxT;t++){
+  if(d[t]<0.12){while(t+1<maxT&&d[t+1]<d[t])t++;
+   const a=d[t-1],b=d[t],c=d[t+1],den=a-2*b+c;
+   const sh=den?0.5*(a-c)/den:0;return sr/(t+sh)}}
+ return -1}
+
+function loop(){
+ if(!run)return;
+ an.getFloatTimeDomainData(buf);
+ let rms=0;for(const v of buf)rms+=v*v;rms=Math.sqrt(rms/buf.length);
+ const now=performance.now();
+ if(rms>0.012){
+  const f=yin(buf,ctx.sampleRate);
+  if(f>0){
+   const n=12*Math.log2(f/A4)+69,r=Math.round(n),c=(n-r)*100;
+   const name=NAMES[((r%12)+12)%12],oct=Math.floor(r/12)-1;
+   lastSeen=now;
+   cur=cur*0.5+c*0.5;
+   const ok=Math.abs(c)<5;
+   $("note").innerHTML=name+"<small>"+oct+"</small>";
+   $("note").style.color=ok?"var(--ok)":"var(--fg)";
+   $("info").textContent=f.toFixed(1)+" Hz · "+(c>0?"+":"")+c.toFixed(0)+" cents"+(ok?" ✓":c>0?" (muy alto, aflojá)":" (muy bajo, ajustá)");
+   $("needle").style.transform="rotate("+Math.max(-60,Math.min(60,cur/50*60))+"deg)";
+   strs.forEach(s=>s.classList.toggle("on",Math.abs(1200*Math.log2(f/(+s.dataset.f*A4/440)))<150));
+  }
+ } else if(now-lastSeen>1500){
+  $("note").textContent="–";$("info").textContent="Tocá una cuerda";
+  $("needle").style.transform="rotate(0deg)";strs.forEach(s=>s.classList.remove("on"));
+ }
+ requestAnimationFrame(loop)}
+
+$("go").onclick=async()=>{
+ if(run){run=false;$("go").textContent="Activar micrófono";return}
+ $("err").textContent="";
+ try{
+  const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  ctx=ctx||new (window.AudioContext||window.webkitAudioContext)();
+  await ctx.resume();
+  an=ctx.createAnalyser();an.fftSize=4096;buf=new Float32Array(an.fftSize);
+  ctx.createMediaStreamSource(st).connect(an);
+  run=true;$("go").textContent="Detener";loop();
+ }catch(e){$("err").textContent="No pude acceder al micrófono. Dale permiso al navegador, o abrí el link directamente en Chrome (no dentro de otra app).";}
+};
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
